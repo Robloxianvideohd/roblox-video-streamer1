@@ -1,45 +1,35 @@
+import os
 import cv2
-import json
-from flask import Flask, jsonify
+import base64
+from flask import Flask, Response
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # Allow Roblox to fetch frames
 
-VIDEO_PATH = "video.mp4"  # Replace with your MP4 path
-PIXELS = 64               # Resolution for Roblox
-FPS = 30                  # Target FPS for Roblox
-
-# Load video
+# Load your video
+VIDEO_PATH = "video.mp4"
 cap = cv2.VideoCapture(VIDEO_PATH)
-video_fps = cap.get(cv2.CAP_PROP_FPS)
-frame_skip = max(int(video_fps / FPS), 1)
 
-frames = []
-frame_count = 0
+# Frame size for Roblox SurfaceGui (32x32 pixels)
+WIDTH, HEIGHT = 32, 32
 
-# Preload all frames into memory
-while True:
+def get_frame():
     ret, frame = cap.read()
     if not ret:
-        break
-
-    if frame_count % frame_skip == 0:
-        # Resize to 32x32
-        small_frame = cv2.resize(frame, (PIXELS, PIXELS))
-        # Convert BGR to RGB
-        pixels = [[ [int(r), int(g), int(b)] for b,g,r in row] for row in small_frame]
-        frames.append(pixels)
-
-    frame_count += 1
-
-cap.release()
-frame_index = 0
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
+        ret, frame = cap.read()
+    frame = cv2.resize(frame, (WIDTH, HEIGHT))
+    # Encode frame as PNG and then base64
+    _, buffer = cv2.imencode('.png', frame)
+    frame_b64 = base64.b64encode(buffer).decode('utf-8')
+    return frame_b64
 
 @app.route("/frame")
-def frame_endpoint():
-    global frame_index
-    frame = frames[frame_index]
-    frame_index = (frame_index + 1) % len(frames)  # Loop video
-    return jsonify(frame)
+def frame():
+    data = get_frame()
+    return Response(data, mimetype='text/plain')
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000)
+    port = int(os.environ.get("PORT", 5000))  # Render provides the port
+    app.run(host="0.0.0.0", port=port)
